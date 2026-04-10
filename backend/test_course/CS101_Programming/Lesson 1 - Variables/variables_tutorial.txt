@@ -1,0 +1,1 @@
+Variables are containers for storing data values. In Python, you create a variable by assigning a value to it. For example: name = 'John', age = 25.

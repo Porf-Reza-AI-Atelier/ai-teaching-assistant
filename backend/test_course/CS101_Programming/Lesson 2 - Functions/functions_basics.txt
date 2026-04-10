@@ -1,0 +1,1 @@
+Functions are reusable blocks of code that perform specific tasks. They help organize code and avoid repetition. Example: def greet(name): return f'Hello {name}'

@@ -1,0 +1,1 @@
+CS101 Course Syllabus: This course covers programming fundamentals including variables, functions, loops, and data structures.

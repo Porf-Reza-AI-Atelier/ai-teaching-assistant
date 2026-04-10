@@ -1,0 +1,347 @@
+from fastapi import FastAPI, HTTPException, Form
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import Optional, List
+import os
+import shutil
+from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv() 
+
+from course_processor import EnhancedCourseProcessor
+from query_engine import EnhancedQueryEngine
+
+app = FastAPI(title="Enhanced AI Teaching Assistant", version="2.0.0")
+
+# CORS for frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Initialize components
+processor = EnhancedCourseProcessor()
+query_engines = {}  # Cache query engines per course
+
+class QueryRequest(BaseModel):
+    question: str
+    course_id: str = "demo"
+    lesson_filter: Optional[int] = None
+    document_filter: Optional[str] = None
+    category_filter: Optional[str] = None  # "lesson", "general", or None
+
+@app.get("/")
+async def root():
+    return {
+        "message": "Enhanced AI Teaching Assistant API",
+        "version": "2.0.0",
+        "status": "running",
+        "features": [
+            "Hierarchical course processing",
+            "Multi-format documents (PDF, DOCX, PPTX, TXT)",
+            "Contextual chunking",
+            "Response re-ranking", 
+            "Lesson-specific querying",
+            "General materials support",
+            "Course structure analysis"
+        ],
+    }
+
+#@app.post("/upload-course-structure")
+#async def upload_course_structure(
+#    file: UploadFile = File(...), 
+#    force_recreate: bool = Form(False)
+#):
+
+#@app.post("/upload-single")
+#async def upload_single_document(
+#    file: UploadFile = File(...), 
+#    course_id: str = Form("demo"),
+#    lesson_order: int = Form(1),
+#    lesson_name: str = Form("General")
+#):
+
+@app.get("/upload-info")
+async def get_upload_info():
+    """Info about file system upload method"""
+    return {
+        "upload_method": "file_system_monitor",
+        "upload_directory": str(Path("./course_uploads").absolute()),
+        "instructions": [
+            "1. Copy ZIP files to ./course_uploads/ directory",
+            "2. Use format: courseid_coursename.zip",
+            "3. System auto-detects and processes changes"
+        ]
+    }
+
+@app.post("/query")
+async def query_documents(request: QueryRequest):
+    """Enhanced query endpoint with lesson, document, and category filtering"""
+    try:
+        # Initialize query engine for course if not cached
+        if request.course_id not in query_engines:
+            query_engines[request.course_id] = EnhancedQueryEngine(request.course_id)
+        
+        engine = query_engines[request.course_id]
+        
+        # Use enhanced query with filters
+        result = engine.query(
+            question=request.question,
+            lesson_filter=request.lesson_filter,
+            document_filter=request.document_filter,
+            category_filter=request.category_filter
+        )
+        
+        return result
+    
+    except Exception as e:
+        raise HTTPException(500, f"Query failed: {str(e)}")
+
+@app.get("/courses")
+async def list_courses():
+    """Get list of available courses and their structure"""
+    try:
+        from qdrant_client import QdrantClient
+        client = QdrantClient(
+            url=os.getenv("QDRANT_URL"),
+            api_key=os.getenv("QDRANT_API_KEY")
+        )
+        
+        collections = client.get_collections()
+        courses = []
+        
+        for collection in collections.collections:
+            if collection.name.startswith("course_"):
+                course_id = collection.name.replace("course_", "")
+                
+                try:
+                    # Get course context
+                    engine = EnhancedQueryEngine(course_id)
+                    context = engine._get_course_context()
+                    
+                    if "error" not in context:
+                        courses.append({
+                            "course_id": course_id,
+                            "course_name": context.get("course_name", f"Course {course_id}"),
+                            "total_lessons": context.get("total_lessons", 0),
+                            "total_documents": context.get("total_documents", 0),
+                            "lessons": context.get("lessons", {})
+                        })
+                except Exception as e:
+                    # Still include course even if context fails
+                    courses.append({
+                        "course_id": course_id,
+                        "course_name": f"Course {course_id}",
+                        "error": f"Could not load course details: {e}"
+                    })
+        
+        return {
+            "total_courses": len(courses),
+            "courses": courses
+        }
+    
+    except Exception as e:
+        raise HTTPException(500, f"Failed to list courses: {str(e)}")
+
+@app.get("/courses/{course_id}/topics")
+async def get_course_topics(course_id: str):
+    """Get available topics/lessons for a specific course"""
+    try:
+        if course_id not in query_engines:
+            query_engines[course_id] = EnhancedQueryEngine(course_id)
+        
+        engine = query_engines[course_id]
+        topics = engine.get_lesson_topics()
+        
+        return {
+            "course_id": course_id,
+            "topics": topics
+        }
+    
+    except Exception as e:
+        raise HTTPException(500, f"Failed to get course topics: {str(e)}")
+
+@app.get("/courses/{course_id}/summary")
+async def get_course_summary(course_id: str):
+    """Get AI-generated summary of course content"""
+    try:
+        if course_id not in query_engines:
+            query_engines[course_id] = EnhancedQueryEngine(course_id)
+        
+        engine = query_engines[course_id]
+        summary = engine.get_course_summary()
+        
+        return summary
+    
+    except Exception as e:
+        raise HTTPException(500, f"Failed to generate course summary: {str(e)}")
+
+@app.post("/query-general")
+async def query_general_materials(
+    question: str = Form(...),
+    course_id: str = Form("demo")
+):
+    """Query only general course materials (syllabus, course overview, etc.)"""
+    try:
+        if course_id not in query_engines:
+            query_engines[course_id] = EnhancedQueryEngine(course_id)
+        
+        engine = query_engines[course_id]
+        result = engine.query_general_materials(question)
+        
+        return result
+    
+    except Exception as e:
+        raise HTTPException(500, f"General materials query failed: {str(e)}")
+
+@app.post("/query-lessons")
+async def query_lesson_materials(
+    question: str = Form(...),
+    course_id: str = Form("demo")
+):
+    """Query only lesson-specific materials"""
+    try:
+        if course_id not in query_engines:
+            query_engines[course_id] = EnhancedQueryEngine(course_id)
+        
+        engine = query_engines[course_id]
+        result = engine.query_lesson_materials(question)
+        
+        return result
+    
+    except Exception as e:
+        raise HTTPException(500, f"Lesson materials query failed: {str(e)}")
+
+@app.post("/query-lesson")
+async def query_lesson(
+    question: str = Form(...),
+    course_id: str = Form("demo"),
+    lesson_order: int = Form(...)
+):
+    """Convenience endpoint to query within a specific lesson"""
+    try:
+        if course_id not in query_engines:
+            query_engines[course_id] = EnhancedQueryEngine(course_id)
+        
+        engine = query_engines[course_id]
+        result = engine.query_by_lesson(question, lesson_order)
+        
+        return result
+    
+    except Exception as e:
+        raise HTTPException(500, f"Lesson query failed: {str(e)}")
+
+@app.get("/health")
+async def health_check():
+    """Enhanced health check with service status"""
+    services = {
+        "groq_api": "configured" if os.getenv("GROQ_API_KEY") else "missing",
+        "qdrant": "configured" if os.getenv("QDRANT_URL") else "missing",
+        "embeddings": "local (HuggingFace BGE)",
+        "reranker": "enabled (sentence-transformers)"
+    }
+    
+    # Test Qdrant connection
+    try:
+        from qdrant_client import QdrantClient
+        client = QdrantClient(
+            url=os.getenv("QDRANT_URL"),
+            api_key=os.getenv("QDRANT_API_KEY")
+        )
+        collections = client.get_collections()
+        services["qdrant_status"] = f"connected ({len(collections.collections)} collections)"
+    except Exception as e:
+        services["qdrant_status"] = f"connection failed: {e}"
+    
+    return {
+        "status": "healthy",
+        "version": "2.0.0",
+        "features": {
+            "contextual_chunking": "enabled",
+            "response_reranking": "enabled", 
+            "hierarchical_courses": "enabled",
+            "lesson_filtering": "enabled",
+            "multi_format_documents": "enabled (PDF, DOCX, PPTX, TXT)",
+            "general_materials_support": "enabled"
+        },
+        "services": services
+    }
+
+@app.get("/debug/collections")
+async def debug_collections():
+    """Debug endpoint to show all collections and their stats"""
+    try:
+        from qdrant_client import QdrantClient
+        client = QdrantClient(
+            url=os.getenv("QDRANT_URL"),
+            api_key=os.getenv("QDRANT_API_KEY")
+        )
+        
+        collections = client.get_collections()
+        collection_stats = []
+        
+        for collection in collections.collections:
+            try:
+                count = client.count(collection.name)
+                info = client.get_collection(collection.name)
+                
+                collection_stats.append({
+                    "name": collection.name,
+                    "vector_count": count.count,
+                    "vector_size": info.config.params.vectors.size,
+                    "distance": info.config.params.vectors.distance.value
+                })
+            except Exception as e:
+                collection_stats.append({
+                    "name": collection.name,
+                    "error": str(e)
+                })
+        
+        return {
+            "total_collections": len(collections.collections),
+            "collections": collection_stats
+        }
+    
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.delete("/courses/{course_id}")
+async def delete_course(course_id: str):
+    """Delete a course and its vector collection"""
+    try:
+        collection_name = f"course_{course_id}"
+        
+        from qdrant_client import QdrantClient
+        client = QdrantClient(
+            url=os.getenv("QDRANT_URL"),
+            api_key=os.getenv("QDRANT_API_KEY")
+        )
+        
+        # Check if collection exists
+        collections = client.get_collections()
+        existing_collections = [col.name for col in collections.collections]
+        
+        if collection_name not in existing_collections:
+            raise HTTPException(404, f"Course {course_id} not found")
+        
+        # Delete collection
+        client.delete_collection(collection_name)
+        
+        # Remove from cache
+        if course_id in query_engines:
+            del query_engines[course_id]
+        
+        return {
+            "message": f"Course {course_id} deleted successfully",
+            "collection_deleted": collection_name
+        }
+    
+    except Exception as e:
+        raise HTTPException(500, f"Failed to delete course: {str(e)}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
