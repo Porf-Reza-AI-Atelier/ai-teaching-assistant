@@ -63,7 +63,8 @@ async def upload_course_structure(
 
     tmp_dir = tempfile.mkdtemp()
     try:
-        zip_path = os.path.join(tmp_dir, file.filename)
+        safe_name = Path(file.filename).name or "upload"
+        zip_path = os.path.join(tmp_dir, safe_name)
         chunk_size = 1024 * 1024
         with open(zip_path, "wb") as f:
             while True:
@@ -123,7 +124,8 @@ async def upload_single_document(
 
     tmp_dir = tempfile.mkdtemp()
     try:
-        tmp_path = os.path.join(tmp_dir, file.filename)
+        safe_name = Path(file.filename).name or "upload"
+        tmp_path = os.path.join(tmp_dir, safe_name)
         chunk_size = 1024 * 1024
         with open(tmp_path, "wb") as f:
             while True:
