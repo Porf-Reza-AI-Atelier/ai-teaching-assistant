@@ -64,9 +64,13 @@ async def upload_course_structure(
     tmp_dir = tempfile.mkdtemp()
     try:
         zip_path = os.path.join(tmp_dir, file.filename)
-        contents = await file.read()
+        chunk_size = 1024 * 1024
         with open(zip_path, "wb") as f:
-            f.write(contents)
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                f.write(chunk)
 
         extract_dir = os.path.join(tmp_dir, "extracted")
         with zipfile.ZipFile(zip_path, "r") as zf:
@@ -120,9 +124,13 @@ async def upload_single_document(
     tmp_dir = tempfile.mkdtemp()
     try:
         tmp_path = os.path.join(tmp_dir, file.filename)
-        contents = await file.read()
+        chunk_size = 1024 * 1024
         with open(tmp_path, "wb") as f:
-            f.write(contents)
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                f.write(chunk)
 
         result = processor.process_single_document(
             file_path=tmp_path,
