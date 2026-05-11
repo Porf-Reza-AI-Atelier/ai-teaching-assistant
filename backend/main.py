@@ -116,7 +116,7 @@ async def upload_single_document(
     lesson_name: str = Form("General")
 ):
     """Upload a single document and index it into the specified course collection."""
-    supported = {".pdf", ".txt", ".md", ".docx", ".doc", ".pptx", ".ppt"}
+    supported = {".pdf", ".txt", ".md", ".docx", ".pptx"}
     suffix = Path(file.filename).suffix.lower()
     if suffix not in supported:
         raise HTTPException(400, f"Unsupported file type '{suffix}'. Allowed: {', '.join(sorted(supported))}")
