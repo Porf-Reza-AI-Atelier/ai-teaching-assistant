@@ -142,7 +142,12 @@ export default function ChatInterface() {
         let detail = `Server error (${response.status})`;
         try {
           const errBody = await response.json();
-          detail = errBody.detail || errBody.message || detail;
+          const raw = errBody.detail || errBody.message;
+          detail = typeof raw === 'string'
+            ? raw
+            : Array.isArray(raw)
+              ? raw.map((e: any) => e.msg || JSON.stringify(e)).join(', ')
+              : JSON.stringify(raw);
         } catch (_) {}
         throw new Error(detail);
       }
