@@ -77,7 +77,12 @@ async def upload_course_structure(
 
         extract_dir = os.path.join(tmp_dir, "extracted")
         with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall(extract_dir)
+            extract_path = Path(extract_dir).resolve()
+            for member in zf.infolist():
+                member_path = (extract_path / member.filename).resolve()
+                if not str(member_path).startswith(str(extract_path) + os.sep):
+                    raise HTTPException(400, f"Invalid path in ZIP: {member.filename}")
+                zf.extract(member, extract_dir)
 
         courses = processor.parse_course_structure(extract_dir)
         if not courses:
