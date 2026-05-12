@@ -537,6 +537,85 @@ Content:
             else:
                 print(f"⚠️ No documents processed for course {course.course_name}")
 
+    def process_single_document(
+        self,
+        file_path: str,
+        course_id: str,
+        lesson_order: int,
+        lesson_name: str,
+        course_name: str = None
+    ) -> Dict:
+        """Index a single document into an existing or new course collection.
+
+        Args:
+            file_path: Absolute path to the document on disk.
+            course_id: Target course identifier (e.g. "cs101").
+            lesson_order: 0 for general materials, 1+ for a specific lesson.
+            lesson_name: Human-readable lesson name (ignored when lesson_order==0).
+            course_name: Optional display name; derived from course_id if not given.
+
+        Returns:
+            Dict with keys: chunks_stored, collection_name, lesson_id, category.
+        """
+        file_path = Path(file_path)
+
+        # Derive course_name from course_id when not supplied
+        if course_name is None:
+            course_name = course_id.replace("_", " ").replace("-", " ").title()
+
+        # lesson_order == 0  →  general course materials
+        if lesson_order == 0:
+            category = "general"
+            lesson_id = "general"
+            lesson_name = "General Course Materials"
+        else:
+            category = "lesson"
+            lesson_id = f"lesson_{lesson_order}"
+
+        collection_name = f"course_{course_id}"
+
+        print(f"📄 Processing single document: {file_path.name}")
+        print(f"   Course: {course_name} ({course_id}) | Lesson: {lesson_name} (order={lesson_order}) | Category: {category}")
+
+        # Extract text from the document
+        text = self.extract_text_from_document(str(file_path))
+        if not text.strip():
+            raise ValueError(f"Could not extract any text from: {file_path.name}")
+
+        # Build metadata matching the full collection schema
+        metadata = {
+            "course_id": course_id,
+            "course_name": course_name,
+            "lesson_id": lesson_id,
+            "lesson_name": lesson_name,
+            "lesson_order": lesson_order,
+            "document_name": file_path.name,
+            "document_path": str(file_path),
+            "document_type": file_path.suffix.lower(),
+            "category": category,
+            "subfolder": None,
+        }
+
+        # Create contextually-aware chunks
+        documents = self.create_contextual_chunks(text, metadata)
+        if not documents:
+            raise ValueError(f"Document produced no indexable chunks: {file_path.name}")
+
+        # Ensure collection exists without wiping existing vectors (additive upload)
+        self._ensure_collection_exists(collection_name)
+
+        # Store vectors
+        self._store_documents_in_collection(collection_name, documents)
+
+        print(f"✅ Indexed {file_path.name}: {len(documents)} chunks → {collection_name}")
+
+        return {
+            "chunks_stored": len(documents),
+            "collection_name": collection_name,
+            "lesson_id": lesson_id,
+            "category": category,
+        }
+
     def _recreate_collection(self, collection_name: str):
         """Delete and recreate collection"""
         try:
@@ -639,9 +718,9 @@ Content:
                         "text": doc.text            # Also store as 'text' field
                     }
                     
-                    # Create proper Qdrant point with integer ID
+                    # Use a UUID string so IDs never collide across additive uploads
                     point = PointStruct(
-                        id=i,  # Use simple integer ID (valid for Qdrant)
+                        id=str(uuid.uuid4()),
                         vector=embedding,
                         payload=enhanced_payload
                     )

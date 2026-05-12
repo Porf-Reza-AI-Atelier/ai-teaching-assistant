@@ -139,7 +139,17 @@ export default function ChatInterface() {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        let detail = `Server error (${response.status})`;
+        try {
+          const errBody = await response.json();
+          const raw = errBody.detail || errBody.message;
+          detail = typeof raw === 'string'
+            ? raw
+            : Array.isArray(raw)
+              ? raw.map((e: any) => e.msg || JSON.stringify(e)).join(', ')
+              : JSON.stringify(raw);
+        } catch (_) {}
+        throw new Error(detail);
       }
 
       const data = await response.json();
@@ -158,10 +168,15 @@ export default function ChatInterface() {
       setMessages(prev => [...prev, aiMessage]);
     } catch (error) {
       console.error('Error sending message:', error);
+      const isNetworkError = error instanceof TypeError && error.message === 'Failed to fetch';
+      const errorDetail = error instanceof Error ? error.message : 'Unknown error';
+      const content = isNetworkError
+        ? "Could not reach the backend server. Make sure it's running on localhost:8000."
+        : `Query failed: ${errorDetail}`;
       const errorMessage: Message = {
         id: Date.now().toString() + '-error',
         role: 'agent',
-        content: "I'm sorry, I couldn't connect to the AI service. Please make sure Rudra's backend server is running on localhost:8000.",
+        content,
         timestamp: new Date().toLocaleTimeString()
       };
       setMessages(prev => [...prev, errorMessage]);

@@ -1,9 +1,11 @@
-from fastapi import FastAPI, HTTPException, Form
+from fastapi import FastAPI, HTTPException, Form, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 import os
 import shutil
+import tempfile
+import zipfile
 from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv() 
@@ -50,19 +52,129 @@ async def root():
         ],
     }
 
-#@app.post("/upload-course-structure")
-#async def upload_course_structure(
-#    file: UploadFile = File(...), 
-#    force_recreate: bool = Form(False)
-#):
+@app.post("/upload-course-structure")
+async def upload_course_structure(
+    file: UploadFile = File(...),
+    force_recreate: bool = Form(False)
+):
+    """Upload a ZIP file containing a course folder structure for processing."""
+    if not file.filename:
+        raise HTTPException(400, "A ZIP filename is required for course structure uploads")
+    safe_name = Path(file.filename).name
+    if not safe_name or not safe_name.endswith(".zip"):
+        raise HTTPException(400, "Only ZIP files are accepted for course structure uploads")
 
-#@app.post("/upload-single")
-#async def upload_single_document(
-#    file: UploadFile = File(...), 
-#    course_id: str = Form("demo"),
-#    lesson_order: int = Form(1),
-#    lesson_name: str = Form("General")
-#):
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        zip_path = os.path.join(tmp_dir, safe_name)
+        chunk_size = 1024 * 1024
+        with open(zip_path, "wb") as f:
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                f.write(chunk)
+
+        extract_dir = os.path.join(tmp_dir, "extracted")
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            extract_path = Path(extract_dir).resolve()
+            for member in zf.infolist():
+                member_path = (extract_path / member.filename).resolve()
+                if not str(member_path).startswith(str(extract_path) + os.sep):
+                    raise HTTPException(400, f"Invalid path in ZIP: {member.filename}")
+                zf.extract(member, extract_dir)
+
+        courses = processor.parse_course_structure(extract_dir)
+        if not courses:
+            raise HTTPException(422, "No valid course structure found in ZIP. Expected: CourseName/Lesson X - Topic/file.pdf")
+
+        processor.process_course_structure(courses, force_recreate=force_recreate)
+
+        total_docs = sum(
+            sum(len(lesson["documents"]) for lesson in c.lessons) + len(c.general_documents)
+            for c in courses
+        )
+        return {
+            "message": "Course structure processed successfully",
+            "courses_processed": len(courses),
+            "total_documents": total_docs,
+            "courses": [
+                {
+                    "course_id": c.course_id,
+                    "course_name": c.course_name,
+                    "lessons": len(c.lessons),
+                    "general_documents": len(c.general_documents)
+                }
+                for c in courses
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Failed to process course structure: {str(e)}")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@app.post("/upload-single")
+async def upload_single_document(
+    file: UploadFile = File(...),
+    course_id: str = Form("demo"),
+    lesson_order: int = Form(1),
+    lesson_name: str = Form("General")
+):
+    """Upload a single document and index it into the specified course collection."""
+    if not file.filename:
+        raise HTTPException(400, "A filename is required for document uploads")
+    safe_name = Path(file.filename).name
+    if not safe_name:
+        raise HTTPException(400, "A filename is required for document uploads")
+    supported = {".pdf", ".txt", ".md", ".docx", ".pptx"}
+    suffix = Path(safe_name).suffix.lower()
+    if suffix not in supported:
+        raise HTTPException(400, f"Unsupported file type '{suffix}'. Allowed: {', '.join(sorted(supported))}")
+
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        tmp_path = os.path.join(tmp_dir, safe_name)
+        chunk_size = 1024 * 1024
+        with open(tmp_path, "wb") as f:
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                f.write(chunk)
+
+        result = processor.process_single_document(
+            file_path=tmp_path,
+            course_id=course_id,
+            lesson_order=lesson_order,
+            lesson_name=lesson_name,
+        )
+
+        # Invalidate cached query engine so it picks up the new vectors
+        if course_id in query_engines:
+            del query_engines[course_id]
+
+        return {
+            "message": "Document uploaded and indexed successfully",
+            "course_id": course_id,
+            "collection": result["collection_name"],
+            "document_name": file.filename,
+            "lesson_order": lesson_order,
+            "lesson_name": lesson_name,
+            "chunks_created": result["chunks_stored"],
+            "lesson_id": result["lesson_id"],
+            "category": result["category"],
+        }
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except Exception as e:
+        raise HTTPException(500, f"Failed to process document: {str(e)}")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 @app.get("/upload-info")
 async def get_upload_info():
@@ -91,6 +203,7 @@ async def query_documents(request: QueryRequest):
         result = engine.query(
             question=request.question,
             lesson_filter=request.lesson_filter,
+            
             document_filter=request.document_filter,
             category_filter=request.category_filter
         )
