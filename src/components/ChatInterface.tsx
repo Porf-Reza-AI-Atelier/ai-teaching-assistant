@@ -41,7 +41,7 @@ export default function ChatInterface() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [expandedSources, setExpandedSources] = useState<{ [key: string]: boolean }>({});
-  const [selectedCourse, setSelectedCourse] = useState('prof_reza_courses');
+  const [selectedCourse, setSelectedCourse] = useState('');
   const [availableCourses, setAvailableCourses] = useState<Course[]>([]);
   const [isLoadingCourses, setIsLoadingCourses] = useState(false);
   const [showHistorySidebar, setShowHistorySidebar] = useState(false);
@@ -94,7 +94,12 @@ export default function ChatInterface() {
       const response = await fetch('http://localhost:8000/courses');
       if (response.ok) {
         const data = await response.json();
-        setAvailableCourses(data.courses || []);
+        const courses = data.courses || [];
+        setAvailableCourses(courses);
+        // Auto-select the first available course if none is selected
+        if (courses.length > 0) {
+          setSelectedCourse(prev => prev || courses[0].course_id);
+        }
       }
     } catch (error) {
       console.error('Failed to fetch courses:', error);
