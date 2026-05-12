@@ -58,12 +58,14 @@ async def upload_course_structure(
     force_recreate: bool = Form(False)
 ):
     """Upload a ZIP file containing a course folder structure for processing."""
-    if not file.filename.endswith(".zip"):
+    if not file.filename:
+        raise HTTPException(400, "A ZIP filename is required for course structure uploads")
+    safe_name = Path(file.filename).name
+    if not safe_name or not safe_name.endswith(".zip"):
         raise HTTPException(400, "Only ZIP files are accepted for course structure uploads")
 
     tmp_dir = tempfile.mkdtemp()
     try:
-        safe_name = Path(file.filename).name or "upload"
         zip_path = os.path.join(tmp_dir, safe_name)
         chunk_size = 1024 * 1024
         with open(zip_path, "wb") as f:
@@ -117,14 +119,18 @@ async def upload_single_document(
     lesson_name: str = Form("General")
 ):
     """Upload a single document and index it into the specified course collection."""
+    if not file.filename:
+        raise HTTPException(400, "A filename is required for document uploads")
+    safe_name = Path(file.filename).name
+    if not safe_name:
+        raise HTTPException(400, "A filename is required for document uploads")
     supported = {".pdf", ".txt", ".md", ".docx", ".pptx"}
-    suffix = Path(file.filename).suffix.lower()
+    suffix = Path(safe_name).suffix.lower()
     if suffix not in supported:
         raise HTTPException(400, f"Unsupported file type '{suffix}'. Allowed: {', '.join(sorted(supported))}")
 
     tmp_dir = tempfile.mkdtemp()
     try:
-        safe_name = Path(file.filename).name or "upload"
         tmp_path = os.path.join(tmp_dir, safe_name)
         chunk_size = 1024 * 1024
         with open(tmp_path, "wb") as f:
