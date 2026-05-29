@@ -253,7 +253,7 @@ async def list_courses():
                 # Scroll payloads directly to skips loading BGE + reranker models entirely
                 points, _ = client.scroll(
                     collection_name=collection.name,
-                    limit=100,
+                    limit=500, #increase the limit for later when testing larger course materials
                     with_payload=True,
                     with_vectors=False,  # don't transfer embedding vectors over the wire
                 )
