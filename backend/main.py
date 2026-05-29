@@ -250,13 +250,20 @@ async def list_courses():
             course_id = collection.name.replace("course_", "")
 
             try:
-                # Scroll payloads directly to skips loading BGE + reranker models entirely
-                points, _ = client.scroll(
-                    collection_name=collection.name,
-                    limit=500, #increase the limit for later when testing larger course materials
-                    with_payload=True,
-                    with_vectors=False,  # don't transfer embedding vectors over the wire
-                )
+                # Scroll all payloads (no vectors) page by page until Qdrant returns no next offset
+                points = []
+                offset = None
+                while True:
+                    batch, offset = client.scroll(
+                        collection_name=collection.name,
+                        limit=1000,
+                        offset=offset,
+                        with_payload=True,
+                        with_vectors=False,  # don't transfer embedding vectors over the wire
+                    )
+                    points.extend(batch)
+                    if offset is None:
+                        break
 
                 lessons = {}
                 documents = set()
