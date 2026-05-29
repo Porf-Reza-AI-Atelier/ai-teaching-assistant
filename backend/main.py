@@ -99,6 +99,7 @@ async def upload_course_structure(
             raise HTTPException(422, "No valid course structure found in ZIP. Expected: CourseName/Lesson X - Topic/file.pdf")
 
         processor.process_course_structure(courses, force_recreate=force_recreate)
+        _invalidate_courses_cache()  # new collection(s) now exist; next GET /courses must re-fetch
 
         total_docs = sum(
             sum(len(lesson["documents"]) for lesson in c.lessons) + len(c.general_documents)
@@ -165,6 +166,7 @@ async def upload_single_document(
         # Invalidate cached query engine so it picks up the new vectors
         if course_id in query_engines:
             del query_engines[course_id]
+        _invalidate_courses_cache()  # document count / lesson structure changed; stale listing must not be served
 
         return {
             "message": "Document uploaded and indexed successfully",
@@ -493,7 +495,8 @@ async def delete_course(course_id: str):
         
         # Delete collection
         client.delete_collection(collection_name)
-        
+        _invalidate_courses_cache()  # course gone from Qdrant; must not appear in next listing
+
         # Remove from cache
         if course_id in query_engines:
             del query_engines[course_id]
