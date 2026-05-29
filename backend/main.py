@@ -29,7 +29,7 @@ app.add_middleware(
 processor = EnhancedCourseProcessor()
 query_engines = {}  # Cache query engines per course
 
-# /courses response cache — invalidated immediately on any upload or delete;
+# /courses response cache invalidated immediately on any upload or delete;
 # TTL is a safety net for edge cases (e.g. direct Qdrant mutations).
 _courses_cache: dict = {"data": None, "expires_at": 0.0}
 _COURSES_CACHE_TTL = 60  # seconds
@@ -228,7 +228,7 @@ async def query_documents(request: QueryRequest):
 @app.get("/courses")
 async def list_courses():
     """Get list of available courses and their structure"""
-    # Return cached result if still fresh — avoids a Qdrant round-trip on every page load
+    # Return cached result if still fresh to avoids a Qdrant round-trip on every page load
     now = time.time()
     if _courses_cache["data"] is not None and now < _courses_cache["expires_at"]:
         return _courses_cache["data"]
@@ -250,7 +250,7 @@ async def list_courses():
             course_id = collection.name.replace("course_", "")
 
             try:
-                # Scroll payloads directly — skips loading BGE + reranker models entirely
+                # Scroll payloads directly to skips loading BGE + reranker models entirely
                 points, _ = client.scroll(
                     collection_name=collection.name,
                     limit=100,

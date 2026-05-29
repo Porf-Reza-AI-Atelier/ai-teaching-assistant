@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect } from 'react';
 
-// Unified Course type — superset of both Course (ChatInterface) and CourseData (CourseDetailsPanel)
+// Unified Course type: superset of both Course (ChatInterface) and CourseData (CourseDetailsPanel)
 export interface Course {
   course_id: string;
   course_name: string;
@@ -18,7 +18,7 @@ interface CourseContextType {
 
 const CourseContext = createContext<CourseContextType | undefined>(undefined);
 
-// Single fetch lives here — both ChatInterface and CourseDetailsPanel consume via useCourses()
+// Single fetch lives here for both ChatInterface and CourseDetailsPanel consume via useCourses()
 export function CourseProvider({ children }: { children: React.ReactNode }) {
   const [courses, setCourses] = useState<Course[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -49,7 +49,7 @@ export function CourseProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Convenience hook — throws if consumed outside a CourseProvider
+// Convenience hook for throws if consumed outside a CourseProvider
 export function useCourses(): CourseContextType {
   const context = useContext(CourseContext);
   if (context === undefined) {
