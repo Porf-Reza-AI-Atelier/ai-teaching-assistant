@@ -222,40 +222,75 @@ async def list_courses():
             url=os.getenv("QDRANT_URL"),
             api_key=os.getenv("QDRANT_API_KEY")
         )
-        
+
         collections = client.get_collections()
         courses = []
-        
+
         for collection in collections.collections:
-            if collection.name.startswith("course_"):
-                course_id = collection.name.replace("course_", "")
-                
-                try:
-                    # Get course context
-                    engine = EnhancedQueryEngine(course_id)
-                    context = engine._get_course_context()
-                    
-                    if "error" not in context:
-                        courses.append({
-                            "course_id": course_id,
-                            "course_name": context.get("course_name", f"Course {course_id}"),
-                            "total_lessons": context.get("total_lessons", 0),
-                            "total_documents": context.get("total_documents", 0),
-                            "lessons": context.get("lessons", {})
-                        })
-                except Exception as e:
-                    # Still include course even if context fails
-                    courses.append({
-                        "course_id": course_id,
-                        "course_name": f"Course {course_id}",
-                        "error": f"Could not load course details: {e}"
-                    })
-        
+            if not collection.name.startswith("course_"):
+                continue
+
+            course_id = collection.name.replace("course_", "")
+
+            try:
+                # Scroll payloads directly — skips loading BGE + reranker models entirely
+                points, _ = client.scroll(
+                    collection_name=collection.name,
+                    limit=100,
+                    with_payload=True,
+                    with_vectors=False,  # don't transfer embedding vectors over the wire
+                )
+
+                lessons = {}
+                documents = set()
+                course_name = None
+                general_docs = set()
+
+                for point in points:
+                    payload = point.payload or {}
+                    if not course_name and payload.get("course_name"):
+                        course_name = payload["course_name"]
+
+                    lesson_order = payload.get("lesson_order", 0)
+                    lesson_name = payload.get("lesson_name", "Unknown")
+                    doc_name = payload.get("document_name", "")
+                    category = payload.get("category", "lesson")
+
+                    if lesson_order == 0 or category == "general":
+                        if doc_name:
+                            general_docs.add(doc_name)
+                    else:
+                        if lesson_order not in lessons:
+                            lessons[lesson_order] = {"lesson_name": lesson_name, "documents": set()}
+                        if doc_name:
+                            lessons[lesson_order]["documents"].add(doc_name)
+
+                    if doc_name:
+                        documents.add(doc_name)
+
+                for lesson_data in lessons.values():
+                    lesson_data["documents"] = list(lesson_data["documents"])
+
+                courses.append({
+                    "course_id": course_id,
+                    "course_name": course_name or f"Course {course_id}",
+                    "total_lessons": len(lessons),
+                    "total_documents": len(documents),
+                    "lessons": dict(sorted(lessons.items())),
+                })
+
+            except Exception as e:
+                courses.append({
+                    "course_id": course_id,
+                    "course_name": f"Course {course_id}",
+                    "error": f"Could not load course details: {e}",
+                })
+
         return {
             "total_courses": len(courses),
             "courses": courses
         }
-    
+
     except Exception as e:
         raise HTTPException(500, f"Failed to list courses: {str(e)}")
 
