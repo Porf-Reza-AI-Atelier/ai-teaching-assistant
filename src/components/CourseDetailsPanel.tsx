@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { BookOpen, Target, Clock, Lightbulb, ChevronRight } from 'lucide-react';
-import { useCourses, Course } from '@/components/CourseProvider';
+import { useCourses } from '@/components/CourseProvider';
 
 const suggestedQuestions = [
   "What is LangChain and how does it work?",
