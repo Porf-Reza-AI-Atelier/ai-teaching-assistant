@@ -5,6 +5,7 @@ from typing import Optional, List
 import os
 import shutil
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 from dotenv import load_dotenv
@@ -27,6 +28,15 @@ app.add_middleware(
 # Initialize components
 processor = EnhancedCourseProcessor()
 query_engines = {}  # Cache query engines per course
+
+# /courses response cache invalidated immediately on any upload or delete;
+# TTL is a safety net for edge cases (e.g. direct Qdrant mutations).
+_courses_cache: dict = {"data": None, "expires_at": 0.0}
+_COURSES_CACHE_TTL = 60  # seconds
+
+def _invalidate_courses_cache() -> None:
+    _courses_cache["data"] = None
+    _courses_cache["expires_at"] = 0.0
 
 class QueryRequest(BaseModel):
     question: str
@@ -89,6 +99,7 @@ async def upload_course_structure(
             raise HTTPException(422, "No valid course structure found in ZIP. Expected: CourseName/Lesson X - Topic/file.pdf")
 
         processor.process_course_structure(courses, force_recreate=force_recreate)
+        _invalidate_courses_cache()  # new collection(s) now exist; next GET /courses must re-fetch
 
         total_docs = sum(
             sum(len(lesson["documents"]) for lesson in c.lessons) + len(c.general_documents)
@@ -155,6 +166,7 @@ async def upload_single_document(
         # Invalidate cached query engine so it picks up the new vectors
         if course_id in query_engines:
             del query_engines[course_id]
+        _invalidate_courses_cache()  # document count / lesson structure changed; stale listing must not be served
 
         return {
             "message": "Document uploaded and indexed successfully",
@@ -216,46 +228,94 @@ async def query_documents(request: QueryRequest):
 @app.get("/courses")
 async def list_courses():
     """Get list of available courses and their structure"""
+    # Return cached result if still fresh to avoids a Qdrant round-trip on every page load
+    now = time.time()
+    if _courses_cache["data"] is not None and now < _courses_cache["expires_at"]:
+        return _courses_cache["data"]
+
     try:
         from qdrant_client import QdrantClient
         client = QdrantClient(
             url=os.getenv("QDRANT_URL"),
             api_key=os.getenv("QDRANT_API_KEY")
         )
-        
+
         collections = client.get_collections()
         courses = []
-        
+
         for collection in collections.collections:
-            if collection.name.startswith("course_"):
-                course_id = collection.name.replace("course_", "")
-                
-                try:
-                    # Get course context
-                    engine = EnhancedQueryEngine(course_id)
-                    context = engine._get_course_context()
-                    
-                    if "error" not in context:
-                        courses.append({
-                            "course_id": course_id,
-                            "course_name": context.get("course_name", f"Course {course_id}"),
-                            "total_lessons": context.get("total_lessons", 0),
-                            "total_documents": context.get("total_documents", 0),
-                            "lessons": context.get("lessons", {})
-                        })
-                except Exception as e:
-                    # Still include course even if context fails
-                    courses.append({
-                        "course_id": course_id,
-                        "course_name": f"Course {course_id}",
-                        "error": f"Could not load course details: {e}"
-                    })
-        
-        return {
-            "total_courses": len(courses),
-            "courses": courses
-        }
-    
+            if not collection.name.startswith("course_"):
+                continue
+
+            course_id = collection.name.replace("course_", "")
+
+            try:
+                # Scroll all payloads (no vectors) page by page until Qdrant returns no next offset
+                points = []
+                offset = None
+                while True:
+                    batch, offset = client.scroll(
+                        collection_name=collection.name,
+                        limit=1000,
+                        offset=offset,
+                        with_payload=True,
+                        with_vectors=False,  # don't transfer embedding vectors over the wire
+                    )
+                    points.extend(batch)
+                    if offset is None:
+                        break
+
+                lessons = {}
+                documents = set()
+                course_name = None
+                general_docs = set()
+
+                for point in points:
+                    payload = point.payload or {}
+                    if not course_name and payload.get("course_name"):
+                        course_name = payload["course_name"]
+
+                    lesson_order = payload.get("lesson_order", 0)
+                    lesson_name = payload.get("lesson_name", "Unknown")
+                    doc_name = payload.get("document_name", "")
+                    category = payload.get("category", "lesson")
+
+                    if lesson_order == 0 or category == "general":
+                        if doc_name:
+                            general_docs.add(doc_name)
+                    else:
+                        if lesson_order not in lessons:
+                            lessons[lesson_order] = {"lesson_name": lesson_name, "documents": set()}
+                        if doc_name:
+                            lessons[lesson_order]["documents"].add(doc_name)
+
+                    if doc_name:
+                        documents.add(doc_name)
+
+                for lesson_data in lessons.values():
+                    lesson_data["documents"] = list(lesson_data["documents"])
+
+                courses.append({
+                    "course_id": course_id,
+                    "course_name": course_name or f"Course {course_id}",
+                    "total_lessons": len(lessons),
+                    "total_documents": len(documents),
+                    "lessons": dict(sorted(lessons.items())),
+                })
+
+            except Exception as e:
+                courses.append({
+                    "course_id": course_id,
+                    "course_name": f"Course {course_id}",
+                    "error": f"Could not load course details: {e}",
+                })
+
+        result = {"total_courses": len(courses), "courses": courses}
+        # Cache for TTL seconds; upload/delete endpoints invalidate eagerly before expiry
+        _courses_cache["data"] = result
+        _courses_cache["expires_at"] = time.time() + _COURSES_CACHE_TTL
+        return result
+
     except Exception as e:
         raise HTTPException(500, f"Failed to list courses: {str(e)}")
 
@@ -442,7 +502,8 @@ async def delete_course(course_id: str):
         
         # Delete collection
         client.delete_collection(collection_name)
-        
+        _invalidate_courses_cache()  # course gone from Qdrant; must not appear in next listing
+
         # Remove from cache
         if course_id in query_engines:
             del query_engines[course_id]

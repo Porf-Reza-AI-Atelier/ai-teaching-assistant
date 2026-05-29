@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Copy, Download, ThumbsUp, ThumbsDown, ChevronDown, ChevronRight, History, X, Menu, Plus, Trash2 } from 'lucide-react';
 import { cn } from "@/lib/utils";
+import { useCourses } from '@/components/CourseProvider';
 
 interface Source {
   filename: string;
@@ -22,13 +23,6 @@ interface Message {
   responseTime?: number;
 }
 
-interface Course {
-  course_id: string;
-  course_name: string;
-  total_lessons: number;
-  total_documents: number;
-}
-
 export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -42,8 +36,7 @@ export default function ChatInterface() {
   const [isLoading, setIsLoading] = useState(false);
   const [expandedSources, setExpandedSources] = useState<{ [key: string]: boolean }>({});
   const [selectedCourse, setSelectedCourse] = useState('');
-  const [availableCourses, setAvailableCourses] = useState<Course[]>([]);
-  const [isLoadingCourses, setIsLoadingCourses] = useState(false);
+  const { courses: availableCourses, isLoading: isLoadingCourses } = useCourses();
   const [showHistorySidebar, setShowHistorySidebar] = useState(false);
   const [chatHistory, setChatHistory] = useState<any[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string>('current');
@@ -66,10 +59,12 @@ export default function ChatInterface() {
     localStorage.setItem('ai-chat-messages', JSON.stringify(messages));
   }, [messages]);
 
-  // Load available courses
+  // Auto-select the first course once the shared course list loads
   useEffect(() => {
-    fetchAvailableCourses();
-  }, []);
+    if (availableCourses.length > 0) {
+      setSelectedCourse(prev => prev || availableCourses[0].course_id);
+    }
+  }, [availableCourses]);
 
   // Load chat history
   useEffect(() => {
@@ -85,26 +80,6 @@ export default function ChatInterface() {
       }
     } catch (error) {
       console.error('Error loading chat history:', error);
-    }
-  };
-
-  const fetchAvailableCourses = async () => {
-    setIsLoadingCourses(true);
-    try {
-      const response = await fetch('http://localhost:8000/courses');
-      if (response.ok) {
-        const data = await response.json();
-        const courses = data.courses || [];
-        setAvailableCourses(courses);
-        // Auto-select the first available course if none is selected
-        if (courses.length > 0) {
-          setSelectedCourse(prev => prev || courses[0].course_id);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to fetch courses:', error);
-    } finally {
-      setIsLoadingCourses(false);
     }
   };
 
