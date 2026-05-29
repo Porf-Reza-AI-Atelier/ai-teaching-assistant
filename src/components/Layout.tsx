@@ -5,7 +5,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import Sidebar from "@/components/Sidebar";
 import CourseDetailsPanel from "@/components/CourseDetailsPanel";
 import { X } from 'lucide-react';
-import { CourseProvider } from '@/components/CourseProvider';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -19,7 +18,6 @@ export default function Layout({
   showRightPanel = true 
 }: LayoutProps) {
   return (
-    <CourseProvider>
     <div className="flex h-screen bg-background overflow-hidden">
       {/* Sidebar */}
       <Sidebar />
@@ -52,6 +50,5 @@ export default function Layout({
         )}
       </div>
     </div>
-    </CourseProvider>
   );
 } 

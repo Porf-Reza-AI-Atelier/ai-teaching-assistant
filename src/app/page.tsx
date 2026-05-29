@@ -2,11 +2,14 @@
 
 import ChatInterface from '@/components/ChatInterface';
 import Layout from '@/components/Layout';
+import { CourseProvider } from '@/components/CourseProvider';
 
 export default function Home() {
   return (
-    <Layout title="AI Teaching Assistant - Student Chat">
-      <ChatInterface />
-    </Layout>
+    <CourseProvider>
+      <Layout title="AI Teaching Assistant - Student Chat">
+        <ChatInterface />
+      </Layout>
+    </CourseProvider>
   );
 }
