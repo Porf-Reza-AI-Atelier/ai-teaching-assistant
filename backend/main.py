@@ -5,6 +5,7 @@ from typing import Optional, List
 import os
 import shutil
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 from dotenv import load_dotenv
@@ -27,6 +28,15 @@ app.add_middleware(
 # Initialize components
 processor = EnhancedCourseProcessor()
 query_engines = {}  # Cache query engines per course
+
+# /courses response cache — invalidated immediately on any upload or delete;
+# TTL is a safety net for edge cases (e.g. direct Qdrant mutations).
+_courses_cache: dict = {"data": None, "expires_at": 0.0}
+_COURSES_CACHE_TTL = 60  # seconds
+
+def _invalidate_courses_cache() -> None:
+    _courses_cache["data"] = None
+    _courses_cache["expires_at"] = 0.0
 
 class QueryRequest(BaseModel):
     question: str
