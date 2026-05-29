@@ -1,17 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { BookOpen, Target, Clock, Lightbulb, ChevronRight } from 'lucide-react';
-
-interface CourseData {
-  course_id: string;
-  course_name: string;
-  total_lessons: number;
-  total_documents: number;
-  lessons?: { [key: string]: any };
-}
+import { useCourses, Course } from '@/components/CourseProvider';
 
 const suggestedQuestions = [
   "What is LangChain and how does it work?",
@@ -32,24 +25,8 @@ const studyTopics = [
 ];
 
 export default function CourseDetailsPanel() {
-  const [courses, setCourses] = useState<CourseData[]>([]);
+  const { courses } = useCourses();
   const [activeTab, setActiveTab] = useState<'topics' | 'suggestions' | 'progress'>('topics');
-
-  const fetchCourses = async () => {
-    try {
-      const response = await fetch('http://localhost:8000/courses');
-      if (response.ok) {
-        const data = await response.json();
-        setCourses(data.courses || []);
-      }
-    } catch (error) {
-      console.error('Failed to fetch courses:', error);
-    }
-  };
-
-  useEffect(() => {
-    fetchCourses();
-  }, []);
 
   const currentCourse = courses.find(c => c.course_id === 'prof_reza_courses') || courses[0];
 
