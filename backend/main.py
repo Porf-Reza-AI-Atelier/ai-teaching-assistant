@@ -226,6 +226,11 @@ async def query_documents(request: QueryRequest):
 @app.get("/courses")
 async def list_courses():
     """Get list of available courses and their structure"""
+    # Return cached result if still fresh — avoids a Qdrant round-trip on every page load
+    now = time.time()
+    if _courses_cache["data"] is not None and now < _courses_cache["expires_at"]:
+        return _courses_cache["data"]
+
     try:
         from qdrant_client import QdrantClient
         client = QdrantClient(
@@ -296,10 +301,11 @@ async def list_courses():
                     "error": f"Could not load course details: {e}",
                 })
 
-        return {
-            "total_courses": len(courses),
-            "courses": courses
-        }
+        result = {"total_courses": len(courses), "courses": courses}
+        # Cache for TTL seconds; upload/delete endpoints invalidate eagerly before expiry
+        _courses_cache["data"] = result
+        _courses_cache["expires_at"] = time.time() + _COURSES_CACHE_TTL
+        return result
 
     except Exception as e:
         raise HTTPException(500, f"Failed to list courses: {str(e)}")
